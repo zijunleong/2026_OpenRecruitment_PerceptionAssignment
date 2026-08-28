@@ -116,6 +116,15 @@ The first call after loading the model took significantly longer because it incl
 
 The reported latency measures the complete Ultralytics `model.predict()` call, including its preprocessing, model inference, and postprocessing. Reading the image from disk is not included.
 
+## Detection Visualization
+
+The following result shows the bounding boxes and class labels published by the ROS 2 detection pipeline.
+
+![YOLO detection result in RViz](rviz_detection.png)
+
+## Performance Test Results
+
+![Inference latency results](performance_results.png)
 ## Error Handling
 
 The service checks the following conditions before running inference:
