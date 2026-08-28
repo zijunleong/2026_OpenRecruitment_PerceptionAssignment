@@ -23,6 +23,11 @@ def generate_launch_description():
     pkg_share = get_package_share_directory('perception_assignment')
     rviz_config = os.path.join(pkg_share, 'rviz', 'yolo_demo.rviz')
     default_image = os.path.join(pkg_share, 'data', 'image_1.jpg')
+    default_model = os.path.join(
+        pkg_share,
+        'models',
+        'yolov8n.pt'
+    )
 
     image_path = LaunchConfiguration('image_path')
     run_rviz = LaunchConfiguration('rviz')
@@ -42,13 +47,13 @@ def generate_launch_description():
             package='perception_assignment',
             executable='image_publisher_node',
             name='image_publisher_node',
-            parameters=[{'image_path': image_path}]
+            parameters=[{'image_path': image_path,'model_path': default_model}]
         ),
         Node(
             package='perception_assignment',
             executable='yolo_service_node',
             name='yolo_service_node',
-            parameters=[{'image_path': image_path}]
+            parameters=[{'image_path': image_path,'model_path': default_model}]
         ),
         Node(
             package='perception_assignment',

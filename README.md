@@ -1,138 +1,302 @@
-# Perception Recruitment Assignment
+# On-Demand YOLO Perception Service
 
-This is a ROS 2 On-Demand Edge YOLO Detection starter kit. 
+## Overview
 
+This project implements an on-demand object-detection pipeline using ROS 2 and YOLOv8n. Unlike a continuous inference pipeline, the model runs only when the `/yolo_detector/trigger_inference` service is called.
 
-**TL;DR for assignment:**
+For each trigger request, the node:
 
-1. Pick one language track: Complete the provided **Python** skeleton, OR rewrite the node entirely in **C++** (highly encouraged for lower latency to score well in assignment).
-2. Pick your engine: A base `yolov8n.pt` is provided, but you are free to swap the model for optimization.
-3. Write the logic: Implement a ROS 2 Service that reads a single image and publishes the bounding boxes *only* when triggered.
-4. Submit your code + an `README.md`** ([See Section 6](#6-what-to-submit)). 
+1. Reads one image from disk.
+2. Runs YOLO inference.
+3. Applies confidence and optional class filtering.
+4. Converts the accepted results into `vision_msgs/msg/Detection2DArray`.
+5. Publishes the detections to `/yolo/detections`.
+6. Returns the detection count and inference latency to the service caller.
 
----
+An additional visualizer overlays the published detections on the input image and displays the result in RViz.
 
-## 1. Package Structure
+## Language and Inference Engine
+
+* Language: Python
+* ROS client library: `rclpy`
+* Inference engine: Ultralytics
+* Model: YOLOv8n
+* Development environment: ROS 2 Lyrical
+* Inference device: CPU
+
+Python was selected because Ultralytics provides a reliable Python interface for YOLO models and allows straightforward integration with ROS 2 messages and services.
+
+YOLOv8n was selected because it is the smallest YOLOv8 model and provides a suitable balance between inference speed and object-detection performance for edge applications.
+
+## ROS 2 Interfaces
+
+| Interface              | Name                               | Type                               |
+| ---------------------- | ---------------------------------- | ---------------------------------- |
+| Main node              | `yolo_service_node`                | ROS 2 node                         |
+| Image parameter        | `image_path`                       | String                             |
+| Model parameter        | `model_path`                       | String                             |
+| Confidence parameter   | `conf_thres`                       | Double                             |
+| Class-filter parameter | `target_classes`                   | String array                       |
+| Trigger service        | `/yolo_detector/trigger_inference` | `std_srvs/srv/Trigger`             |
+| Detection output       | `/yolo/detections`                 | `vision_msgs/msg/Detection2DArray` |
+| Input image topic      | `/data`                            | `sensor_msgs/msg/Image`            |
+| Annotated image topic  | `/yolo/annotated_image`            | `sensor_msgs/msg/Image`            |
+
+The `/data` topic and visualizer are used only for demonstration. YOLO inference is performed by reading the image specified by `image_path`.
+
+## Detection and Filtering Logic
+
+The YOLO output supplies:
+
+* class index;
+* confidence score;
+* bounding-box corner coordinates.
+
+Each bounding box is converted from YOLO corner coordinates `(x1, y1, x2, y2)` into the centre position, width, and height required by `vision_msgs/msg/Detection2D`.
+
+Detections below `conf_thres` are removed. The default threshold is:
 
 ```text
-perception_assignment/
-├── README.md                    <- You are here
-├── package.xml                  
-├── setup.py                     
-├── setup.cfg
-├── launch/                      
-│   └── demo.launch.py           <- One-shot demo (node + visualizer + RViz)
-├── rviz/                        
-│   └── yolo_demo.rviz           <- RViz config showing /yolo/annotated_image
-├── models/                      
-│   └── yolov8n.pt               <- Default model 
-├── perception_assignment/
-│   ├── __init__.py
-│   ├── image_publisher_node.py  <- Demo helper: throttled static image publisher
-│   ├── yolo_service_node.py     <- The Python skeleton you need to complete (if choosing Python)
-│   └── yolo_visualizer_node.py  <- A provided visualization tool for your bounding boxes
-└── data/                         <- Sample test images
-    └── image_1.jpg ... image_5.jpg
+0.5
 ```
 
----
+The optional `target_classes` parameter can retain only selected YOLO classes. An empty class list accepts every detected class.
 
-## 2. The Challenge & Rules
-
-Unlike continuous detection streams which consume too much CPU/GPU, our robot operates in a resource-constrained environment. Your node must run silently in the background. When a specific ROS 2 Service is called, it will read a single test image from the disk, run YOLO inference, and return the result.
-
-| #   | Rule                               | Detail                                                                                                                                       |
-| --- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **On-Demand Inference Only** | Do NOT run inference in a continuous loop. Inference must ONLY execute when the `std_srvs/srv/Trigger` service is called.                    |
-| 2   | **Language Choice (C++ / Python)** | You can fill in the `# TODO` in `yolo_service_node.py`, OR you can create a new C++ node (`yolo_service_node.cpp`) to replace it.            |
-| 3   | **Model Freedom** | You can use the provided `yolov8n.pt`, or replace it with your optimized model.      |
-| 4   | **Standard ROS Output** | The final output must be published as a standard `vision_msgs/msg/Detection2DArray`.                                                         |
-
----
-
-## 3. Inputs & Outputs Specifications
-
-Whether you use Python or C++, your node must conform to the following ROS 2 interfaces:
-
-* **Node Name:** `yolo_service_node`
-* **Node Parameter:** `image_path` (string) - The absolute or relative path to the image you want to process.
-* **Trigger Service Name:** `/yolo_detector/trigger_inference` (`std_srvs/srv/Trigger`)
-* **Detection Output Topic:** `/yolo/detections` (`vision_msgs/msg/Detection2DArray`)
-
----
-
-## 4. One-time Setup & Build
-
-Clone this repository into your ROS 2 Workspace (Humble or Jazzy) and build it:
+For example:
 
 ```bash
-cd ~/ros2_ws/src
-git clone git@github.com:Team-Robo/2026_OpenRecruitment_PerceptionAssignment.git
-cd ~/ros2_ws
-
-# Install ROS dependencies (Make sure you have vision_msgs installed)
-sudo apt update
-sudo apt install ros-$ROS_DISTRO-vision-msgs ros-$ROS_DISTRO-cv-bridge
-
-# Build the package
-colcon build --packages-select perception_assignment
-source install/setup.bash
+ros2 run perception_assignment yolo_service_node --ros-args \
+  -p image_path:="/absolute/path/to/image.jpg" \
+  -p target_classes:="['cup', 'bottle']" \
+  -p conf_thres:=0.5
 ```
 
-*(Note: If you use additional Python libraries please document them in your submission).*
+## Optimization Strategy
 
----
+The following strategies were used:
 
-## 5. How to Test Your Node
+1. The YOLO model is loaded once when the node starts instead of being loaded for every request.
+2. Inference runs only when the Trigger service is called.
+3. The lightweight YOLOv8n model is used.
+4. Low-confidence detections are removed.
+5. Optional class filtering avoids publishing unnecessary objects.
+6. No continuous camera-inference loop is used.
+7. Inference latency is measured using `time.perf_counter()` around the Ultralytics `model.predict()` call.
 
-1. **Place a test image:** Put any `.jpg` image (e.g., `test.jpg`) containing multiple objects in your workspace.
-2. **Run your YOLO Service node (passing the image path as a parameter):**
-   ```bash
-   ros2 run perception_assignment yolo_service_node --ros-args -p image_path:="test.jpg"
-   ```
-3. **In a separate terminal, run the visualizer node (Optional):**
-   ```bash
-   ros2 run perception_assignment yolo_visualizer_node
-   ```
-4. **Trigger the inference manually:**
-   ```bash
-   ros2 service call /yolo_detector/trigger_inference std_srvs/srv/Trigger "{}"
-   ```
-5. **Verify the output:** Check if your node publishes the correct filtered Bounding Boxes to `/yolo/detections`.
+The image publisher runs at a low frequency only to support RViz visualization. It does not perform inference.
 
----
+## Performance Results
 
-### 5.1 One-Shot Demo (RViz, optional)
+Testing was performed on:
 
-The package ships a demo launch file that starts the image publisher (`image_publisher_node`), the YOLO service node, the visualizer, and RViz showing the annotated result:
+* CPU: Intel Core i9-14900HX
+* CUDA available: No
+* Inference device: CPU
+* Model: YOLOv8n
+* Confidence threshold: 0.5
+* Measurements per image: 10
+* Total measured calls: 50
+* First model warm-up call: Excluded
+
+| Test image    | Detected objects | Average latency |
+| ------------- | ---------------: | --------------: |
+| `image_1.jpg` |                6 |        36.33 ms |
+| `image_2.jpg` |               15 |        32.68 ms |
+| `image_3.jpg` |                7 |        37.74 ms |
+| `image_4.jpg` |               10 |        34.77 ms |
+| `image_5.jpg` |               10 |        35.34 ms |
+
+The overall average inference latency across the 50 measured calls was:
+
+```text
+35.37 ms
+```
+
+The first call after loading the model took significantly longer because it included model warm-up. It was excluded from the average.
+
+The reported latency measures the complete Ultralytics `model.predict()` call, including its preprocessing, model inference, and postprocessing. Reading the image from disk is not included.
+
+## Error Handling
+
+The service checks the following conditions before running inference:
+
+* whether the image path exists;
+* whether OpenCV can read the image;
+* whether the YOLO model loaded successfully;
+* whether an exception occurs during inference.
+
+If an invalid image path is supplied, the node returns:
+
+```text
+success: false
+message: "Image not found at ..."
+```
+
+The node therefore reports the failure without crashing.
+
+## Dependencies
+
+### ROS dependencies
+
+* `rclpy`
+* `rcl_interfaces`
+* `sensor_msgs`
+* `vision_msgs`
+* `std_srvs`
+* `cv_bridge`
+* `ament_index_python`
+* `rviz2`
+
+### Python dependencies
+
+* Ultralytics
+* PyTorch
+* OpenCV
+* NumPy
+
+## Installation
+
+Source the ROS 2 environment:
+
+```bash
+source /opt/ros/$ROS_DISTRO/setup.bash
+```
+
+Install the required ROS packages:
+
+```bash
+sudo apt update
+
+sudo apt install \
+  ros-$ROS_DISTRO-vision-msgs \
+  ros-$ROS_DISTRO-cv-bridge \
+  ros-$ROS_DISTRO-rviz2 \
+  python3-opencv
+```
+
+Create a Python virtual environment with access to the ROS system packages:
+
+```bash
+python3 -m venv --system-site-packages ~/team_robo_venv
+
+source ~/team_robo_venv/bin/activate
+
+python -m pip install --upgrade pip
+python -m pip install ultralytics
+```
+
+## OpenCV and `cv_bridge` Compatibility
+
+During development on ROS 2 Lyrical, the pip version of OpenCV conflicted with the ROS `cv_bridge` package and produced a `KeyError` during image conversion.
+
+The compatible Ubuntu OpenCV package was used instead:
+
+```bash
+python -m pip uninstall -y \
+  opencv-python \
+  opencv-python-headless \
+  opencv-contrib-python \
+  opencv-contrib-python-headless
+
+sudo apt install --reinstall \
+  python3-opencv \
+  ros-$ROS_DISTRO-cv-bridge
+```
+
+The virtual environment must be created using `--system-site-packages` so that it can access the ROS-compatible OpenCV installation.
+
+## Build Instructions
+
+Place the repository inside a ROS 2 workspace:
+
+```bash
+cd ~/ros2_ws
+```
+
+Source ROS and activate the Python environment:
+
+```bash
+source /opt/ros/$ROS_DISTRO/setup.bash
+source ~/team_robo_venv/bin/activate
+```
+
+Build the package:
+
+```bash
+colcon build \
+  --packages-select perception_assignment \
+  --symlink-install
+```
+
+Source the completed workspace:
+
+```bash
+source ~/ros2_ws/install/setup.bash
+```
+
+## Running the Complete Demo
+
+Go to the repository directory:
+
+```bash
+cd ~/ros2_ws/src/2026_OpenRecruitment_PerceptionAssignment
+```
+
+Launch the detector, image publisher, visualizer, and RViz:
 
 ```bash
 ros2 launch perception_assignment demo.launch.py
 ```
 
-Then trigger inference in a separate terminal:
+To select another image:
 
 ```bash
-ros2 service call /yolo_detector/trigger_inference std_srvs/srv/Trigger "{}"
+ros2 launch perception_assignment demo.launch.py \
+  image_path:="$PWD/data/image_2.jpg"
 ```
 
-Notes:
-- `image_publisher_node` is a **visualization aid only**. It throttles the selected image to `/data` at a few Hz so the visualizer/RViz always have an Image stream. It is *not* part of the challenge and does not perform any inference.
-- Pass a different image with `image_path:=/path/to/your.jpg` (forwarded to both the publisher and the service node).
-- For headless systems, skip RViz with `rviz:=false`.
+The RViz display remains empty until the first inference request is made.
 
----
+In another sourced terminal, trigger inference:
 
-## 6. What to Submit
+```bash
+ros2 service call /yolo_detector/trigger_inference \
+  std_srvs/srv/Trigger "{}"
+```
 
-Please push your code to a GitHub repository and share the link with us. Your submission must include:
+A successful response has the following form:
 
-1. **Your working ROS 2 package:** Either the completed Python version or your new C++ version.
-2. **Your model file:** If you tried another model, please include it in the `models/` folder.
-3. **An `README.md`:** A file at the root of your repository covering:
-   * **Language & Engine Choice:** Which language and inference engine did you use and why?
-   * **Strategy:** What are your strategies for optimization?
-   * **Performance:** What is the average single-frame inference latency (in milliseconds) on your machine? (Please specify your CPU/GPU hardware).
-   * **Setup Instructions:** Any extra pip or apt packages we need to install before running your code.
+```text
+success: true
+message: "Detected 6 objects in 36.47 ms"
+```
 
-Good luck, and we look forward to reviewing your approach!
+After the first trigger, the visualizer publishes the latest annotated image to `/yolo/annotated_image`.
+
+## Running Without RViz
+
+For a headless system:
+
+```bash
+ros2 launch perception_assignment demo.launch.py \
+  rviz:=false
+```
+
+Detections can be inspected using:
+
+```bash
+ros2 topic echo /yolo/detections
+```
+
+## Design Notes
+
+The detector remains strictly on-demand. The visualizer republishes the most recent annotated result when new `/data` image messages arrive, but this does not rerun YOLO.
+
+The bounding-box implementation supports the `vision_msgs` centre-field formats used by different ROS 2 distributions.
+
+## Limitations
+
+* Testing was performed using CPU inference only.
+* The provided YOLOv8n model is trained on the standard COCO classes.
+* The service processes one disk image per trigger rather than a live camera stream.
+* Detection accuracy depends on the provided model and confidence threshold.
