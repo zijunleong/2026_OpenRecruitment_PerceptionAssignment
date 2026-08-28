@@ -124,7 +124,7 @@ The complete set of RViz detection screenshots is available in the
 The following is one example of the published bounding boxes, class labels,
 and confidence scores:
 
-![Example YOLO detection result](results/image_1_detection.png)
+![Example YOLO detection result](results/pic_5_result.png)
 
 ## Error Handling
 
