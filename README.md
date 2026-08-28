@@ -118,13 +118,14 @@ The reported latency measures the complete Ultralytics `model.predict()` call, i
 
 ## Detection Visualization
 
-The following result shows the bounding boxes and class labels published by the ROS 2 detection pipeline.
+The complete set of RViz detection screenshots is available in the
+[`results` folder](results/).
 
-![YOLO detection result in RViz](rviz_detection.png)
+The following is one example of the published bounding boxes, class labels,
+and confidence scores:
 
-## Performance Test Results
+![Example YOLO detection result](results/image_1_detection.png)
 
-![Inference latency results](performance_results.png)
 ## Error Handling
 
 The service checks the following conditions before running inference:
